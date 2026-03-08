@@ -1,5 +1,10 @@
 # Polyflow
 
+[![PyPI version](https://img.shields.io/pypi/v/polyflow-ai.svg)](https://pypi.org/project/polyflow-ai/)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Tests](https://img.shields.io/badge/tests-59%20passing-brightgreen.svg)](#)
+
 **Run multi-model AI workflows in a single YAML file.**
 
 Combine Claude, Gemini, and GPT-4 — parallel or sequential — with human checkpoints, template variables, and output saving. No boilerplate, no SDK juggling.

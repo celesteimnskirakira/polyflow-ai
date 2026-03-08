@@ -4,7 +4,7 @@ import yaml
 from pathlib import Path
 from rich.console import Console
 from rich.panel import Panel
-from rich.progress import Progress, SpinnerColumn, TextColumn
+from rich.progress import Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 from polyflow.schema.workflow import Workflow
 from polyflow.engine.template import TemplateContext
 from polyflow.engine.executor import execute_step
@@ -50,7 +50,7 @@ async def run_workflow(
 
     for step in workflow.steps:
         t0 = time.monotonic()
-        with Progress(SpinnerColumn(), TextColumn("{task.description}"), transient=True) as p:
+        with Progress(SpinnerColumn(), TextColumn("{task.description}"), TimeElapsedColumn(), transient=True) as p:
             task_id = p.add_task(f"[cyan]{step.name}[/cyan]...")
             output = await execute_step(step, ctx, config)
             p.update(task_id, completed=True)

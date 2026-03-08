@@ -29,6 +29,7 @@ from polyflow import __version__
 from polyflow.config import Config, save_config, load_config
 
 console = Console()
+err_console = Console(stderr=True)
 
 # ─── Workflow resolution ──────────────────────────────────────────────────────
 
@@ -262,7 +263,7 @@ def run(workflow_ref: str, user_input: str, output: str | None, show_output: boo
     try:
         workflow_path = _resolve_workflow(workflow_ref)
     except FileNotFoundError as e:
-        console.print(f"[red]✗ {e}[/red]")
+        err_console.print(f"[red]✗ {e}[/red]")
         sys.exit(1)
 
     if not user_input:
@@ -270,7 +271,7 @@ def run(workflow_ref: str, user_input: str, output: str | None, show_output: boo
 
     config = load_config()
     if not config.uses_openrouter and not config.api_keys:
-        console.print(
+        err_console.print(
             "[yellow]⚠ No API keys found.[/yellow] "
             "Set [bold]OPENROUTER_API_KEY[/bold] or run [bold]polyflow init[/bold]."
         )
@@ -313,14 +314,14 @@ def validate(workflow_file: Path):
             console.print(f"    [dim]{step.id:28}[/dim] {stype}{hitl}{cond}")
         console.print()
     except ValidationError as e:
-        console.print(f"\n  [red]✗ Validation failed:[/red] {workflow_file.name}\n")
+        err_console.print(f"\n  [red]✗ Validation failed:[/red] {workflow_file.name}\n")
         for error in e.errors():
             loc = " → ".join(str(x) for x in error["loc"])
-            console.print(f"  [red]  {loc}[/red]")
-            console.print(f"      {error['msg']}\n")
+            err_console.print(f"  [red]  {loc}[/red]")
+            err_console.print(f"      {error['msg']}\n")
         sys.exit(1)
     except Exception as e:
-        console.print(f"\n  [red]✗ Error:[/red] {e}\n")
+        err_console.print(f"\n  [red]✗ Error:[/red] {e}\n")
         sys.exit(1)
 
 
