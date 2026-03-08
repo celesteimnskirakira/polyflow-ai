@@ -62,14 +62,24 @@ def _resolve_workflow(ref: str) -> Path:
         search_dirs.append(_pkg_examples)
 
     name = Path(ref).stem  # strip any extension
+    known_names: list[str] = []
     for d in search_dirs:
         for suffix in ("", ".yaml"):
             p = d / (name + suffix)
             if p.exists():
                 return p
+        if d.is_dir():
+            known_names.extend(p.stem for p in d.glob("*.yaml"))
+
+    # "Did you mean?" fuzzy suggestion
+    import difflib
+    close = difflib.get_close_matches(name, known_names, n=3, cutoff=0.5)
+    suggestion = ""
+    if close:
+        suggestion = f"\n  • Did you mean: {', '.join(close)}?"
 
     raise FileNotFoundError(
-        f"Workflow '{ref}' not found.\n"
+        f"Workflow '{ref}' not found.{suggestion}\n"
         f"  • Run [bold]polyflow list[/bold] to see available workflows\n"
         f"  • Run [bold]polyflow pull {ref}[/bold] to download from registry\n"
         f"  • Run [bold]polyflow new \"{ref}\"[/bold] to generate one"
@@ -149,20 +159,28 @@ def _show_welcome() -> None:
             "  Get a free key at [link=https://openrouter.ai]https://openrouter.ai[/link]"
         )
 
+    # Context-aware suggestion: detect git repo
+    context_tip = ""
+    if Path(".git").is_dir():
+        context_tip = (
+            "\n[dim]Detected: git repository[/dim]\n"
+            "  [bold cyan]→[/bold cyan] [bold]polyflow run code-review-multi-model -i \"$(git diff HEAD~1)\"[/bold]\n"
+        )
+
     quick_ref = (
         "\n[dim]Quick reference:[/dim]\n"
         "  [bold]polyflow list[/bold]                    Browse local workflows\n"
         "  [bold]polyflow run <name> -i \"..\"[/bold]     Run a workflow\n"
-        "  [bold]polyflow new \"...\"[/bold]              Generate workflow with AI\n"
+        "  [bold]polyflow new[/bold]                     Generate workflow with AI\n"
         "  [bold]polyflow onboard <tool>[/bold]          Generate workflow for any tool\n"
+        "  [bold]polyflow run <name> --dry-run[/bold]    Preview prompts without API calls\n"
         "  [bold]polyflow doctor[/bold]                  Check setup\n"
-        "  [bold]polyflow init[/bold]                    Configure API keys\n"
     )
 
     console.print()
     console.print(
         Panel(
-            f"  {status_line}{quick_ref}",
+            f"  {status_line}{context_tip}{quick_ref}",
             title=title,
             border_style="cyan",
             padding=(0, 1),
@@ -292,7 +310,9 @@ def list_workflows(tag: str | None):
 @click.option("--input", "-i", "user_input", default="", help="Input to pass to the workflow")
 @click.option("--output", "-o", default=None, help="Save final output to a file")
 @click.option("--show-output/--no-show-output", default=True, help="Preview step outputs")
-def run(workflow_ref: str, user_input: str, output: str | None, show_output: bool):
+@click.option("--dry-run", is_flag=True, default=False,
+              help="Preview rendered prompts without calling any APIs")
+def run(workflow_ref: str, user_input: str, output: str | None, show_output: bool, dry_run: bool):
     """
     Run a workflow by name or file path.
 
@@ -301,6 +321,7 @@ def run(workflow_ref: str, user_input: str, output: str | None, show_output: boo
       polyflow run code-review-multi-model -i "$(git diff HEAD~1)"
       polyflow run ./my-flow.yaml -i "build a todo API"
       polyflow run bug-triage -i "TypeError in auth.py line 42"
+      polyflow run code-review-multi-model --dry-run -i "test"
     """
     from polyflow.engine.runner import run_workflow
 
@@ -314,14 +335,17 @@ def run(workflow_ref: str, user_input: str, output: str | None, show_output: boo
         user_input = click.prompt("  Workflow input")
 
     config = load_config()
-    if not config.uses_openrouter and not config.api_keys:
+    if not dry_run and not config.uses_openrouter and not config.api_keys:
         err_console.print(
             "[yellow]⚠ No API keys found.[/yellow] "
             "Set [bold]OPENROUTER_API_KEY[/bold] or run [bold]polyflow init[/bold]."
         )
         sys.exit(1)
 
-    ctx = asyncio.run(run_workflow(workflow_path, user_input, config, show_output=show_output))
+    ctx = asyncio.run(run_workflow(
+        workflow_path, user_input, config,
+        show_output=show_output, dry_run=dry_run,
+    ))
 
     if output and ctx.step_outputs:
         last_output = list(ctx.step_outputs.values())[-1]

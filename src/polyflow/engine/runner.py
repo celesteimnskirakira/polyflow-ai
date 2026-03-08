@@ -21,11 +21,14 @@ async def run_workflow(
     config: Config,
     cwd: Path | None = None,
     show_output: bool = True,
+    dry_run: bool = False,
 ) -> TemplateContext:
     """
     Execute a workflow YAML file.
     Returns the final TemplateContext (contains all step outputs).
     """
+    from rich.syntax import Syntax
+
     raw = yaml.safe_load(workflow_path.read_text())
     workflow = Workflow.model_validate(raw)
 
@@ -45,12 +48,42 @@ async def run_workflow(
 
     _workflow_start = time.monotonic()
 
-    console.print(f"\n[bold green]▶ Running:[/bold green] {workflow.name}")
+    if dry_run:
+        console.print(f"\n[bold yellow]◎ Dry run:[/bold yellow] {workflow.name}  [dim](no API calls)[/dim]")
+    else:
+        console.print(f"\n[bold green]▶ Running:[/bold green] {workflow.name}")
     if workflow.description:
         console.print(f"[dim]{workflow.description}[/dim]")
     console.print()
 
+    from polyflow.engine.template import render
+
     for step in workflow.steps:
+        if dry_run:
+            # Render prompt but skip API call
+            from polyflow.engine.executor import _evaluate_condition
+            if step.condition and not _evaluate_condition(step.condition, ctx):
+                console.print(f"[yellow]⏭  {step.name} — would be skipped (condition false)[/yellow]")
+                continue
+            if step.type == "parallel":
+                console.print(f"[cyan]◎[/cyan] {step.name}  [dim](parallel × {len(step.steps)})[/dim]")
+                for sub in step.steps:
+                    rendered = render(sub.prompt, ctx)
+                    console.print(Panel(
+                        Syntax(rendered, "text", theme="monokai", padding=(0, 1)),
+                        title=f"[dim]{sub.id} ({sub.model})[/dim]",
+                        border_style="dim",
+                    ))
+            else:
+                rendered = render(step.prompt or "", ctx)
+                console.print(f"[cyan]◎[/cyan] {step.name}  [dim]({step.model})[/dim]")
+                console.print(Panel(
+                    Syntax(rendered, "text", theme="monokai", padding=(0, 1)),
+                    title=f"[dim]{step.id} — prompt preview[/dim]",
+                    border_style="dim",
+                ))
+            continue
+
         t0 = time.monotonic()
         with Progress(SpinnerColumn(), TextColumn("{task.description}"), TimeElapsedColumn(), transient=True) as p:
             task_id = p.add_task(f"[cyan]{step.name}[/cyan]...")
@@ -69,9 +102,6 @@ async def run_workflow(
             preview = output[:400] + ("…" if len(output) > 400 else "")
             console.print(Panel(preview, border_style="dim", padding=(0, 1)))
 
-        # save_to: per-step output saving (future: individual step output config)
-        # For now, honour workflow-level output.save_to after the last step.
-
         if step.hitl:
             result = prompt_hitl(
                 message=step.hitl.message,
@@ -82,6 +112,10 @@ async def run_workflow(
             if result.choice == "abort":
                 console.print("[red]✗ Workflow aborted by user.[/red]")
                 return ctx
+
+    if dry_run:
+        console.print("\n[bold yellow]◎ Dry run complete.[/bold yellow]  No API calls were made.\n")
+        return ctx
 
     # Save final output if configured
     if workflow.output.save_to:
