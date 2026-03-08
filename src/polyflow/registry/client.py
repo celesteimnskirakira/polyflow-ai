@@ -5,9 +5,9 @@ Currently backed by the polyflow GitHub repository's examples directory.
 import httpx
 from pathlib import Path
 
-_REPO = "celesteimnskirakira/polyflow"
-_BRANCH = "feature/polyflow-mvp"
-_WORKFLOWS_PATH = "workflows/examples"
+_REPO = "celesteimnskirakira/polyflow-community"
+_BRANCH = "main"
+_WORKFLOWS_PATH = "workflows"
 
 REGISTRY_RAW_BASE = f"https://raw.githubusercontent.com/{_REPO}/{_BRANCH}/{_WORKFLOWS_PATH}"
 REGISTRY_API_URL = f"https://api.github.com/repos/{_REPO}/contents/{_WORKFLOWS_PATH}?ref={_BRANCH}"

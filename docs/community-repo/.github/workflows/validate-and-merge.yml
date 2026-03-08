@@ -1,0 +1,65 @@
+name: Validate and Auto-Merge Workflow
+
+on:
+  pull_request:
+    paths:
+      - "workflows/**"
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Polyflow
+        run: pip install polyflow-ai
+
+      - name: Validate changed workflows
+        run: |
+          echo "Changed files:"
+          git diff --name-only origin/${{ github.base_ref }}...HEAD
+
+          FAILED=0
+          while IFS= read -r file; do
+            if [[ "$file" == workflows/*.yaml ]]; then
+              echo ""
+              echo "── Validating: $file"
+              if polyflow validate "$file"; then
+                echo "   ✓ valid"
+              else
+                echo "   ✗ FAILED"
+                FAILED=1
+              fi
+            fi
+          done < <(git diff --name-only origin/${{ github.base_ref }}...HEAD)
+
+          if [ $FAILED -ne 0 ]; then
+            echo ""
+            echo "One or more workflows failed validation."
+            exit 1
+          fi
+
+      - name: Auto-merge on success
+        if: success()
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            await github.rest.pulls.merge({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.payload.pull_request.number,
+              merge_method: "squash",
+              commit_title: context.payload.pull_request.title,
+            });
+            console.log(`Merged PR #${context.payload.pull_request.number}`);

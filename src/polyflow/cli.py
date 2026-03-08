@@ -589,7 +589,7 @@ def share(workflow_file: Path, token: str | None, message: str | None):
     Share a workflow to the community registry via GitHub PR.
 
     \b
-    Requires a GitHub personal access token with repo scope.
+    Requires a GitHub personal access token with public_repo scope.
     Set GITHUB_TOKEN env var or pass with --token.
 
     \b
@@ -612,8 +612,8 @@ def share(workflow_file: Path, token: str | None, message: str | None):
 
     if not token:
         err_console.print("\n  [red]✗ GitHub token required.[/red]")
-        err_console.print("  Create one at: https://github.com/settings/tokens")
-        err_console.print("  Needs [bold]repo[/bold] scope (for forking + creating PRs)")
+        err_console.print("  Create one at: https://github.com/settings/tokens/new")
+        err_console.print("  Needs [bold]public_repo[/bold] scope only (not full repo)")
         err_console.print("  Then: [bold]export GITHUB_TOKEN=ghp_...[/bold]\n")
         sys.exit(1)
 
@@ -631,9 +631,9 @@ async def _do_share(
     import httpx
 
     _OWNER = "celesteimnskirakira"
-    _REPO  = "polyflow"
-    _BASE  = "feature/polyflow-mvp"
-    _PATH  = f"workflows/examples/{workflow_file.name}"
+    _REPO  = "polyflow-community"
+    _BASE  = "main"
+    _PATH  = f"workflows/{workflow_file.name}"
     _API   = "https://api.github.com"
 
     headers = {
