@@ -580,6 +580,175 @@ def search():
 
 
 @main.command()
+@click.argument("workflow_file", type=click.Path(exists=True, path_type=Path))
+@click.option("--token", "-t", envvar="GITHUB_TOKEN", default=None,
+              help="GitHub personal access token (or set GITHUB_TOKEN env var)")
+@click.option("--message", "-m", default=None, help="Description for the PR")
+def share(workflow_file: Path, token: str | None, message: str | None):
+    """
+    Share a workflow to the community registry via GitHub PR.
+
+    \b
+    Requires a GitHub personal access token with repo scope.
+    Set GITHUB_TOKEN env var or pass with --token.
+
+    \b
+    Examples:
+      polyflow share my-workflow.yaml
+      polyflow share my-workflow.yaml -m "Useful for code reviews"
+      polyflow share my-workflow.yaml --token ghp_...
+    """
+    import yaml
+    from pydantic import ValidationError
+    from polyflow.schema.workflow import Workflow
+
+    # Validate first
+    try:
+        raw = yaml.safe_load(workflow_file.read_text())
+        wf = Workflow.model_validate(raw)
+    except (ValidationError, Exception) as e:
+        err_console.print(f"\n  [red]✗ Validation failed:[/red] {e}\n")
+        sys.exit(1)
+
+    if not token:
+        err_console.print("\n  [red]✗ GitHub token required.[/red]")
+        err_console.print("  Create one at: https://github.com/settings/tokens")
+        err_console.print("  Needs [bold]repo[/bold] scope (for forking + creating PRs)")
+        err_console.print("  Then: [bold]export GITHUB_TOKEN=ghp_...[/bold]\n")
+        sys.exit(1)
+
+    console.print(f"\n  Sharing [bold]{wf.name}[/bold] to community registry...")
+    asyncio.run(_do_share(workflow_file, wf, token, message))
+
+
+async def _do_share(
+    workflow_file: Path,
+    wf,
+    token: str,
+    pr_message: str | None,
+) -> None:
+    import base64
+    import httpx
+
+    _OWNER = "celesteimnskirakira"
+    _REPO  = "polyflow"
+    _BASE  = "feature/polyflow-mvp"
+    _PATH  = f"workflows/examples/{workflow_file.name}"
+    _API   = "https://api.github.com"
+
+    headers = {
+        "Authorization": f"token {token}",
+        "Accept": "application/vnd.github.v3+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+
+    async with httpx.AsyncClient(headers=headers, timeout=30) as gh:
+
+        # ── 1. Get authenticated user ──────────────────────────────────────
+        with console.status("[cyan]Authenticating...[/cyan]"):
+            r = await gh.get(f"{_API}/user")
+            if r.status_code == 401:
+                err_console.print("\n  [red]✗ Invalid GitHub token.[/red]\n")
+                sys.exit(1)
+            r.raise_for_status()
+            gh_user = r.json()["login"]
+        console.print(f"  [green]✓[/green] Authenticated as [bold]{gh_user}[/bold]")
+
+        # ── 2. Fork the repo (idempotent) ──────────────────────────────────
+        with console.status("[cyan]Forking repository...[/cyan]"):
+            await gh.post(f"{_API}/repos/{_OWNER}/{_REPO}/forks")
+            # GitHub returns 202 whether fork is new or already exists.
+            # Wait briefly for fork to become available.
+            import asyncio as _aio
+            await _aio.sleep(3)
+        console.print(f"  [green]✓[/green] Fork ready: [dim]{gh_user}/{_REPO}[/dim]")
+
+        # ── 3. Get base branch SHA ─────────────────────────────────────────
+        with console.status("[cyan]Reading base branch...[/cyan]"):
+            r = await gh.get(f"{_API}/repos/{_OWNER}/{_REPO}/git/ref/heads/{_BASE}")
+            r.raise_for_status()
+            base_sha = r.json()["object"]["sha"]
+
+        # ── 4. Create branch on fork (idempotent) ─────────────────────────
+        branch = f"share-{workflow_file.stem}"
+        with console.status(f"[cyan]Creating branch {branch}...[/cyan]"):
+            r = await gh.post(
+                f"{_API}/repos/{gh_user}/{_REPO}/git/refs",
+                json={"ref": f"refs/heads/{branch}", "sha": base_sha},
+            )
+            if r.status_code not in (201, 422):   # 422 = branch already exists
+                r.raise_for_status()
+        console.print(f"  [green]✓[/green] Branch: [dim]{branch}[/dim]")
+
+        # ── 5. Upload workflow file ────────────────────────────────────────
+        content_b64 = base64.b64encode(workflow_file.read_bytes()).decode()
+
+        # Check if file already exists on the fork branch (need its SHA to update)
+        existing_sha = None
+        chk = await gh.get(
+            f"{_API}/repos/{gh_user}/{_REPO}/contents/{_PATH}",
+            params={"ref": branch},
+        )
+        if chk.status_code == 200:
+            existing_sha = chk.json()["sha"]
+
+        put_body: dict = {
+            "message": f"Add workflow: {wf.name}",
+            "content": content_b64,
+            "branch": branch,
+        }
+        if existing_sha:
+            put_body["sha"] = existing_sha
+
+        with console.status("[cyan]Uploading workflow file...[/cyan]"):
+            r = await gh.put(
+                f"{_API}/repos/{gh_user}/{_REPO}/contents/{_PATH}",
+                json=put_body,
+            )
+            r.raise_for_status()
+        console.print(f"  [green]✓[/green] File uploaded: [dim]{_PATH}[/dim]")
+
+        # ── 6. Open PR ────────────────────────────────────────────────────
+        description = wf.description or ""
+        tags = getattr(wf, "tags", [])
+        body = pr_message or (
+            f"## {wf.name}\n\n"
+            f"{description}\n\n"
+            + (f"**Tags:** {', '.join(f'`{t}`' for t in tags)}\n\n" if tags else "")
+            + f"Shared via `polyflow share`."
+        )
+
+        with console.status("[cyan]Opening pull request...[/cyan]"):
+            r = await gh.post(
+                f"{_API}/repos/{_OWNER}/{_REPO}/pulls",
+                json={
+                    "title": f"Add workflow: {wf.name}",
+                    "body": body,
+                    "head": f"{gh_user}:{branch}",
+                    "base": _BASE,
+                },
+            )
+            if r.status_code == 422:
+                # PR already exists — find its URL
+                search_r = await gh.get(
+                    f"{_API}/repos/{_OWNER}/{_REPO}/pulls",
+                    params={"head": f"{gh_user}:{branch}", "state": "open"},
+                )
+                existing_prs = search_r.json()
+                if existing_prs:
+                    pr_url = existing_prs[0]["html_url"]
+                    console.print(f"  [yellow]→[/yellow] PR already open: [bold]{pr_url}[/bold]")
+                else:
+                    console.print("  [yellow]→[/yellow] PR may already exist — check GitHub.")
+                return
+            r.raise_for_status()
+            pr_url = r.json()["html_url"]
+
+    console.print(f"\n  [bold green]✓ PR opened![/bold green]  {pr_url}")
+    console.print("  The community will review and merge your workflow.\n")
+
+
+@main.command()
 @click.option("--shell", type=click.Choice(["bash", "zsh", "fish"]), default=None)
 def completion(shell: str | None):
     """
