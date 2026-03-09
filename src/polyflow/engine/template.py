@@ -38,14 +38,15 @@ def render(template_str: str, ctx: TemplateContext) -> str:
     """
     def replacer(match: re.Match) -> str:
         expr = match.group(1).strip()
-        # Handle pipe fallback: {{a | b}}
+        # Handle pipe fallback: {{a | b}} — b can be a dotpath or a literal string
         if "|" in expr:
-            parts = [p.strip() for p in expr.split("|")]
-            for part in parts:
-                value = _resolve_dotpath(part, ctx)
-                if value:
-                    return value
-            return ""
+            parts = [p.strip() for p in expr.split("|", maxsplit=1)]
+            primary = _resolve_dotpath(parts[0], ctx)
+            if primary:
+                return primary
+            # Try to resolve fallback as dotpath; if empty treat as literal
+            fallback_resolved = _resolve_dotpath(parts[1], ctx)
+            return fallback_resolved if fallback_resolved else parts[1]
         return _resolve_dotpath(expr, ctx)
 
     return re.sub(r"\{\{(.+?)\}\}", replacer, template_str)

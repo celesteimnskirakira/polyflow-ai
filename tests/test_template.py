@@ -28,6 +28,13 @@ def test_render_fallback_pipe():
     assert result == "Plan: original plan"
 
 
+def test_render_fallback_pipe_literal():
+    """{{a | literal string}} uses the literal when a is missing."""
+    ctx = TemplateContext(input="test")
+    result = render("Note: {{steps.missing.output | no output yet}}", ctx)
+    assert result == "Note: no output yet"
+
+
 def test_render_vars():
     ctx = TemplateContext(input="test", vars={"language": "zh"})
     result = render("Language: {{vars.language}}", ctx)

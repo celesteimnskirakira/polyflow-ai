@@ -91,9 +91,14 @@ async def execute_parallel(step: Step, ctx: TemplateContext, config: Config) -> 
 
     # If aggregate.model is set, use that model to produce a final summary
     if step.aggregate and step.aggregate.model:
-        agg_prompt = step.aggregate.prompt or (
+        default_prompt = (
             "Synthesize the following parallel model outputs into a single concise summary:\n\n"
             + aggregated
+        )
+        agg_prompt = (
+            step.aggregate.prompt.replace("{{aggregated}}", aggregated)
+            if step.aggregate.prompt
+            else default_prompt
         )
         adapter = get_model_adapter(step.aggregate.model, config)
         api_key = config.get_api_key(step.aggregate.model)
