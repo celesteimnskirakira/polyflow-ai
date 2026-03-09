@@ -281,10 +281,17 @@ def list_workflows(tag: str | None):
         return
 
     if tag:
-        workflows = [(n, d, p, t) for n, d, p, t in workflows if any(tag in item for item in t)]
-        if not workflows:
-            console.print(f"[yellow]No workflows with tag '{tag}'.[/yellow]")
+        all_tags = sorted({t for _, _, _, tags in workflows for t in tags})
+        filtered = [(n, d, p, t) for n, d, p, t in workflows if any(tag in item for item in t)]
+        if not filtered:
+            import difflib
+            suggestions = difflib.get_close_matches(tag, all_tags, n=3, cutoff=0.6)
+            msg = f"[yellow]No workflows with tag '{tag}'.[/yellow]"
+            if suggestions:
+                msg += f"\n  Did you mean: {', '.join(suggestions)}?"
+            console.print(msg)
             return
+        workflows = filtered
 
     table = Table(box=box.ROUNDED, show_header=True, header_style="bold cyan", padding=(0, 1))
     table.add_column("Name", style="bold white", min_width=28)
