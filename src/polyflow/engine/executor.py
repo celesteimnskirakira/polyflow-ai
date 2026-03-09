@@ -1,5 +1,6 @@
 from __future__ import annotations
 import asyncio
+import random
 import re
 from typing import Optional
 from polyflow.schema.workflow import Step
@@ -16,6 +17,26 @@ def _parse_timeout(timeout_str: str) -> float:
     if s.endswith("s"):
         return float(s[:-1])
     return float(s)
+
+
+def _is_retryable(exc: Exception) -> bool:
+    """Return True for rate-limit or server errors; False for client errors (4xx)."""
+    msg = str(exc).lower()
+    # Rate limit or server error → retry
+    if "429" in msg or "rate limit" in msg or "too many" in msg:
+        return True
+    if any(f"{c}" in msg for c in (500, 502, 503, 504)):
+        return True
+    # Client errors (auth, bad request) → don't retry
+    if any(f"{c}" in msg for c in (400, 401, 403, 404)):
+        return False
+    # Default: retry on unknown errors
+    return True
+
+
+def _backoff(attempt: int) -> float:
+    """Exponential backoff with jitter: base * 2^attempt + random(0, 1)."""
+    return min(2 ** attempt + random.uniform(0, 1), 60.0)
 
 
 def _evaluate_condition(condition: str, ctx: TemplateContext) -> bool:
@@ -61,11 +82,13 @@ async def execute_step(step: Step, ctx: TemplateContext, config: Config) -> Opti
                 if step.on_error.fallback == "abort":
                     raise RuntimeError(f"Step '{step.id}' timed out after {step.timeout}")
                 return None
-        except Exception:
-            if attempt == step.on_error.retry:
+            await asyncio.sleep(_backoff(attempt))
+        except Exception as exc:
+            if attempt == step.on_error.retry or not _is_retryable(exc):
                 if step.on_error.fallback == "abort":
                     raise
                 return None
+            await asyncio.sleep(_backoff(attempt))
     return None
 
 
@@ -85,8 +108,20 @@ async def execute_parallel(step: Step, ctx: TemplateContext, config: Config) -> 
                 return sub.id, None
             raise
 
-    results = await asyncio.gather(*[run_substep(s) for s in step.steps])
-    outputs = {sid: out for sid, out in results if out is not None}
+    # return_exceptions=True so one substep failure doesn't cancel siblings
+    raw_results = await asyncio.gather(
+        *[run_substep(s) for s in step.steps],
+        return_exceptions=True,
+    )
+
+    outputs: dict[str, str] = {}
+    for result in raw_results:
+        if isinstance(result, Exception):
+            if step.on_error.partial != "continue":
+                raise result
+        elif result[1] is not None:
+            outputs[result[0]] = result[1]
+
     aggregated = _aggregate(outputs, step)
 
     # If aggregate.model is set, use that model to produce a final summary

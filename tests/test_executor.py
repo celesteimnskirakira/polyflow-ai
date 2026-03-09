@@ -1,7 +1,7 @@
 import pytest
 from unittest.mock import AsyncMock, patch
 from polyflow.engine.executor import execute_step, execute_parallel
-from polyflow.schema.workflow import Step, SubStep, AggregateConfig
+from polyflow.schema.workflow import Step, SubStep, AggregateConfig, OnError
 from polyflow.engine.template import TemplateContext
 from polyflow.config import Config
 
@@ -77,6 +77,93 @@ async def test_aggregate_model_calls_llm(config):
 
     assert result == "Final summary"
     assert mock_adapter.complete.call_count == 3
+
+
+@pytest.mark.asyncio
+async def test_non_retryable_error_skips_backoff(config):
+    """Client errors (401/400) should not be retried — fail immediately."""
+    step = Step(
+        id="s1", name="S1", model="claude", prompt="test",
+        on_error=OnError(retry=3, fallback="continue"),
+    )
+    ctx = TemplateContext(input="test")
+
+    call_count = 0
+
+    async def auth_error(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        raise RuntimeError("401 Unauthorized")
+
+    with patch("polyflow.engine.executor.get_model_adapter") as mock_get:
+        mock_adapter = AsyncMock()
+        mock_adapter.complete = auth_error
+        mock_get.return_value = mock_adapter
+        result = await execute_step(step, ctx, config)
+
+    assert result is None
+    assert call_count == 1  # should NOT retry on 401
+
+
+@pytest.mark.asyncio
+async def test_rate_limit_error_is_retried(config):
+    """429 rate limit errors should be retried up to on_error.retry times."""
+    step = Step(
+        id="s1", name="S1", model="claude", prompt="test",
+        on_error=OnError(retry=2, fallback="continue"),
+    )
+    ctx = TemplateContext(input="test")
+
+    call_count = 0
+
+    async def rate_limited(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count < 3:
+            raise RuntimeError("429 Too Many Requests")
+        return "success"
+
+    with patch("polyflow.engine.executor.get_model_adapter") as mock_get:
+        with patch("polyflow.engine.executor.asyncio.sleep", new_callable=AsyncMock):
+            mock_adapter = AsyncMock()
+            mock_adapter.complete = rate_limited
+            mock_get.return_value = mock_adapter
+            result = await execute_step(step, ctx, config)
+
+    assert result == "success"
+    assert call_count == 3
+
+
+@pytest.mark.asyncio
+async def test_parallel_partial_failure_continues(config):
+    """With on_error.partial='continue', failed substeps are excluded from output."""
+    step = Step(
+        id="par", name="Par", type="parallel",
+        steps=[
+            SubStep(id="ok", model="claude", prompt="test"),
+            SubStep(id="fail", model="gemini", prompt="test"),
+        ],
+        aggregate=AggregateConfig(mode="raw"),
+        on_error=OnError(partial="continue"),
+    )
+    ctx = TemplateContext(input="test")
+    call_count = 0
+
+    async def mixed(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return "ok output"
+        raise RuntimeError("substep failed")
+
+    with patch("polyflow.engine.executor.get_model_adapter") as mock_get:
+        mock_adapter = AsyncMock()
+        mock_adapter.complete = mixed
+        mock_get.return_value = mock_adapter
+        result = await execute_parallel(step, ctx, config)
+
+    assert "ok output" in result
+    assert "failed" not in result
 
 
 @pytest.mark.asyncio

@@ -169,7 +169,7 @@ def _save_output(workflow: Workflow, ctx: TemplateContext) -> None:
     if output_cfg.format == "json":
         import json
         content = json.dumps(
-            {sid: ctx.step_outputs.get(sid) for sid in included_ids},
+            {sid: ctx.step_outputs[sid] for sid in included_ids if sid in ctx.step_outputs},
             indent=2,
             ensure_ascii=False,
         )

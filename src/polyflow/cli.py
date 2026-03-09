@@ -379,15 +379,24 @@ def validate(workflow_file: Path):
         raw = yaml.safe_load(workflow_file.read_text())
         wf = Workflow.model_validate(raw)
         console.print(f"\n  [green]✓[/green] [bold]{wf.name}[/bold] — valid ({len(wf.steps)} steps)\n")
+        _KNOWN_MODELS = {"claude", "gemini", "gpt-4", "codex"}
+        warnings = []
         for step in wf.steps:
             if step.type == "parallel":
                 stype = f"[dim]parallel[/dim] × {len(step.steps)}"
+                for sub in step.steps:
+                    if sub.model not in _KNOWN_MODELS and "/" not in sub.model:
+                        warnings.append(f"Unknown model '{sub.model}' in {step.id}/{sub.id} — did you mean: claude, gemini, gpt-4?")
             else:
                 stype = f"[dim]{step.model}[/dim]"
+                if step.model and step.model not in _KNOWN_MODELS and "/" not in step.model:
+                    warnings.append(f"Unknown model '{step.model}' in step '{step.id}' — did you mean: claude, gemini, gpt-4?")
             hitl = " [yellow]+hitl[/yellow]" if step.hitl else ""
             cond = " [blue]+if[/blue]" if step.condition else ""
             console.print(f"    [dim]{step.id:28}[/dim] {stype}{hitl}{cond}")
         console.print()
+        for w in warnings:
+            console.print(f"  [yellow]⚠[/yellow] {w}")
     except ValidationError as e:
         err_console.print(f"\n  [red]✗ Validation failed:[/red] {workflow_file.name}\n")
         for error in e.errors():
