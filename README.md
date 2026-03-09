@@ -7,12 +7,18 @@
 
 **Three models check the same thing. Consensus beats any single AI.**
 
-Run Claude, Gemini, and GPT-4 in parallel on the same task — they cross-validate each other, vote on findings, and synthesize a final answer. No single model's blind spots. No boilerplate. One YAML file.
+Run Claude, Gemini, and GPT-4 in parallel on the same task — they cross-validate each other, vote on findings, and synthesize a final answer. No single model's blind spots. No boilerplate. Describe what you want in plain English.
 
 ```bash
 pip install polyflow-ai
 export OPENROUTER_API_KEY=sk-or-...
+
+# Use a built-in workflow
 polyflow run code-review-multi-model -i "$(git diff HEAD~1)"
+
+# Or describe what you want — Polyflow generates the workflow
+polyflow new "three models audit my API for security issues, vote on findings" -o audit.yaml
+polyflow run ./audit.yaml -i "$(cat src/api.py)"
 ```
 
 Or as a GitHub Action on every PR — fully automated, no human in the loop required:
@@ -69,6 +75,19 @@ polyflow doctor   # verify everything works
 
 ## Quick Start
 
+**Option A — describe what you want (no YAML required):**
+
+```bash
+# Natural language → workflow YAML → run
+polyflow new "three models review my API design, vote on findings" -o api-review.yaml
+polyflow run ./api-review.yaml -i "$(cat src/api.py)"
+
+# Or generate and run interactively
+polyflow new
+```
+
+**Option B — use a built-in workflow:**
+
 ```bash
 # Browse 22 ready-to-use workflows
 polyflow list
@@ -81,9 +100,6 @@ polyflow run security-audit -i "$(cat src/auth.py)"
 
 # Bug triage across models
 polyflow run bug-triage -i "TypeError: 'NoneType' object is not subscriptable in auth.py:42"
-
-# Generate a custom workflow
-polyflow new "three models review my API design, synthesize best approach" -o api-review.yaml
 ```
 
 ---
