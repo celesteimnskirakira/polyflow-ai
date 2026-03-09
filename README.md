@@ -131,6 +131,98 @@ polyflow run security-consensus --ci -i "$(cat src/auth.py)"
 
 ---
 
+## Customize
+
+### Change which models run in parallel
+
+Open any workflow YAML and edit the `model` field in each parallel step. The number of steps = the number of models that run simultaneously.
+
+**Two models instead of three:**
+```yaml
+steps:
+  - id: review
+    type: parallel
+    steps:
+      - id: claude_view
+        model: claude
+        prompt: "Review this code: {{input}}"
+      - id: gemini_view
+        model: gemini
+        prompt: "Review this code: {{input}}"
+    aggregate:
+      mode: diff
+      model: claude
+```
+
+**Four models:**
+```yaml
+    steps:
+      - id: claude_view
+        model: claude
+        prompt: "..."
+      - id: gemini_view
+        model: gemini
+        prompt: "..."
+      - id: gpt4_view
+        model: gpt-4
+        prompt: "..."
+      - id: opus_view
+        model: claude-opus      # premium alias
+        prompt: "..."
+```
+
+### Use a premium or different model
+
+Replace the alias with any model name — either a Polyflow alias or a full OpenRouter model ID:
+
+```yaml
+# Polyflow premium aliases
+model: claude-opus    # Claude Opus 4.6
+model: gpt-5          # GPT-5.4
+model: gemini-pro     # Gemini 3.1 Pro (1M context)
+
+# Any OpenRouter model ID (290+ models available)
+model: openai/gpt-5.4
+model: anthropic/claude-opus-4-6
+model: deepseek/deepseek-r2
+model: meta-llama/llama-3.3-70b-instruct
+```
+
+### Start from a built-in workflow
+
+The fastest way to write a custom workflow is to copy an existing one:
+
+```bash
+# Copy a built-in workflow to edit
+polyflow list                                    # find one you like
+cp ~/.polyflow/workflows/security-audit.yaml ./my-audit.yaml
+
+# Or export directly
+polyflow run security-audit --dry-run -i "test"  # preview what it does
+
+# Edit, validate, run
+polyflow validate ./my-audit.yaml
+polyflow run ./my-audit.yaml -i "$(cat src/auth.py)"
+```
+
+### Change aggregate mode
+
+`mode: vote` — findings all models agree on (highest confidence, fewer results)
+`mode: diff` — everything, with disagreements highlighted (more results, needs review)
+`mode: summary` — all outputs synthesized into one report (no diff view)
+`mode: raw` — outputs returned separately, no synthesis
+
+```yaml
+aggregate:
+  mode: vote       # change this
+  model: claude    # which model writes the final synthesis (optional)
+  prompt: |        # custom synthesis prompt (optional)
+    Summarize findings. Mark consensus items as HIGH CONFIDENCE.
+    {{aggregated}}
+```
+
+---
+
 ## Core Concepts
 
 ### Parallel Steps + Aggregation
