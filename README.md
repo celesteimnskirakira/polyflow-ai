@@ -283,6 +283,91 @@ Output saving (markdown | json | text)
 
 ---
 
+## GitHub Actions
+
+Run Polyflow workflows directly in CI/CD — no server, no setup beyond API keys.
+
+```yaml
+- uses: celesteimnskirakira/polyflow@main
+  with:
+    workflow: code-review-multi-model
+    input: ${{ steps.diff.outputs.content }}
+    openrouter-api-key: ${{ secrets.OPENROUTER_API_KEY }}
+```
+
+### Quick start
+
+**1. Add your API key to GitHub Secrets**
+
+Go to `Settings → Secrets → Actions` and add:
+
+| Secret | Description |
+|---|---|
+| `OPENROUTER_API_KEY` | Single key for Claude + Gemini + GPT-4 (recommended) |
+| `ANTHROPIC_API_KEY` | Claude only |
+| `GOOGLE_API_KEY` | Gemini only |
+| `OPENAI_API_KEY` | GPT-4 only |
+
+**2. Copy a ready-to-use workflow**
+
+| Workflow file | Trigger | What it does |
+|---|---|---|
+| [polyflow-code-review.yml](.github/workflows/polyflow-code-review.yml) | Pull request | Claude + Gemini + GPT-4 parallel review, posts as PR comment |
+| [polyflow-security-audit.yml](.github/workflows/polyflow-security-audit.yml) | Push to main / weekly | OWASP audit, opens issue on critical findings |
+| [polyflow-pr-description.yml](.github/workflows/polyflow-pr-description.yml) | PR opened | Auto-generates PR description from diff |
+
+Copy any of these into your repo's `.github/workflows/` folder and you're done.
+
+### Action inputs
+
+| Input | Required | Default | Description |
+|---|---|---|---|
+| `workflow` | ✅ | — | Workflow name or path to `.yaml` file |
+| `input` | | `""` | Input string passed to the workflow |
+| `output-file` | | — | Save output to this file path |
+| `version` | | `latest` | Pin a specific `polyflow-ai` version |
+| `openrouter-api-key` | | — | OpenRouter key (covers all models) |
+| `anthropic-api-key` | | — | Anthropic key (Claude only) |
+| `google-api-key` | | — | Google key (Gemini only) |
+| `openai-api-key` | | — | OpenAI key (GPT-4 only) |
+
+### Action outputs
+
+| Output | Description |
+|---|---|
+| `result` | Final workflow output text |
+| `output-file` | Path to saved output file |
+
+### Use any built-in or custom workflow
+
+```yaml
+# Run a built-in workflow
+- uses: celesteimnskirakira/polyflow@main
+  with:
+    workflow: security-audit
+    input: ${{ steps.source.outputs.content }}
+    openrouter-api-key: ${{ secrets.OPENROUTER_API_KEY }}
+
+# Run a custom workflow from your repo
+- uses: celesteimnskirakira/polyflow@main
+  with:
+    workflow: ./my-workflows/custom-review.yaml
+    input: ${{ github.event.pull_request.title }}
+    openrouter-api-key: ${{ secrets.OPENROUTER_API_KEY }}
+```
+
+### CI mode
+
+All workflows run in `--ci` mode automatically when using the Action — HITL checkpoints are auto-approved with `continue`, so pipelines never block waiting for human input.
+
+To use CI mode from the CLI directly:
+
+```bash
+polyflow run security-audit --ci -i "$(cat src/auth.py)"
+```
+
+---
+
 ## Contributing
 
 Workflows are plain YAML — no code required.

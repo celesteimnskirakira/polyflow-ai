@@ -1,0 +1,94 @@
+name: AI Security Audit
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - 'src/**'
+      - 'app/**'
+      - '**.py'
+      - '**.ts'
+      - '**.js'
+  schedule:
+    # Run weekly on Monday at 09:00 UTC
+    - cron: '0 9 * * 1'
+  workflow_dispatch:
+    inputs:
+      target-path:
+        description: 'Path to audit (default: src/)'
+        required: false
+        default: 'src/'
+
+permissions:
+  contents: read
+  issues: write
+  security-events: write
+
+jobs:
+  security-audit:
+    name: Multi-model security audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Collect source files
+        id: source
+        run: |
+          TARGET="${{ github.event.inputs.target-path || 'src/' }}"
+          # Collect up to 6000 chars of source for audit
+          SOURCE=$(find "$TARGET" -name "*.py" -o -name "*.ts" -o -name "*.js" 2>/dev/null \
+            | head -20 \
+            | xargs cat 2>/dev/null \
+            | head -c 6000)
+          {
+            echo "content<<SOURCE_EOF"
+            echo "$SOURCE"
+            echo "SOURCE_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Run Polyflow security audit
+        id: audit
+        uses: celesteimnskirakira/polyflow@main
+        with:
+          workflow: security-audit
+          input: ${{ steps.source.outputs.content }}
+          output-file: security-report.md
+          openrouter-api-key: ${{ secrets.OPENROUTER_API_KEY }}
+
+      - name: Check for critical findings
+        id: severity-check
+        run: |
+          if grep -qi "critical\|high severity\|CVE" security-report.md 2>/dev/null; then
+            echo "has_critical=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_critical=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Open GitHub issue for critical findings
+        if: steps.severity-check.outputs.has_critical == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const report = fs.readFileSync('security-report.md', 'utf8');
+            const sha = context.sha.slice(0, 7);
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `🔴 Security: Critical findings detected (${sha})`,
+              body: `## Polyflow Security Audit Report\n\n` +
+                `**Commit:** ${context.sha}\n` +
+                `**Branch:** ${context.ref}\n\n` +
+                `---\n\n` +
+                report.slice(0, 65000),
+              labels: ['security', 'critical'],
+            });
+
+      - name: Upload security report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: security-report-${{ github.sha }}
+          path: security-report.md
+          retention-days: 90

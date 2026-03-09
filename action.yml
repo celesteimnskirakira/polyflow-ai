@@ -1,0 +1,100 @@
+name: 'Polyflow'
+description: 'Run multi-model AI workflows (Claude + Gemini + GPT-4) from a YAML file'
+author: 'Polyflow Contributors'
+
+branding:
+  icon: 'zap'
+  color: 'purple'
+
+inputs:
+  workflow:
+    description: 'Workflow name (e.g. code-review-multi-model) or path to a .yaml file'
+    required: true
+  input:
+    description: 'Input string passed to the workflow (-i flag)'
+    required: false
+    default: ''
+  output-file:
+    description: 'Save the final workflow output to this file path'
+    required: false
+    default: ''
+  version:
+    description: 'polyflow-ai version to install (default: latest)'
+    required: false
+    default: 'latest'
+  openrouter-api-key:
+    description: 'OpenRouter API key — covers Claude, Gemini, and GPT-4 with a single key'
+    required: false
+  anthropic-api-key:
+    description: 'Anthropic API key (for Claude, if not using OpenRouter)'
+    required: false
+  google-api-key:
+    description: 'Google API key (for Gemini, if not using OpenRouter)'
+    required: false
+  openai-api-key:
+    description: 'OpenAI API key (for GPT-4, if not using OpenRouter)'
+    required: false
+
+outputs:
+  result:
+    description: 'Final workflow output text'
+    value: ${{ steps.run-workflow.outputs.result }}
+  output-file:
+    description: 'Path to the saved output file (if output-file input was set)'
+    value: ${{ steps.run-workflow.outputs.output-file }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Install polyflow-ai
+      shell: bash
+      run: |
+        if [ "${{ inputs.version }}" = "latest" ]; then
+          pip install polyflow-ai --quiet
+        else
+          pip install "polyflow-ai==${{ inputs.version }}" --quiet
+        fi
+
+    - name: Run Polyflow workflow
+      id: run-workflow
+      shell: bash
+      env:
+        OPENROUTER_API_KEY: ${{ inputs.openrouter-api-key }}
+        ANTHROPIC_API_KEY: ${{ inputs.anthropic-api-key }}
+        GOOGLE_API_KEY: ${{ inputs.google-api-key }}
+        OPENAI_API_KEY: ${{ inputs.openai-api-key }}
+      run: |
+        # Build the polyflow command
+        CMD="polyflow run ${{ inputs.workflow }} --ci"
+
+        if [ -n "${{ inputs.input }}" ]; then
+          CMD="$CMD -i $(printf '%q' '${{ inputs.input }}')"
+        fi
+
+        if [ -n "${{ inputs.output-file }}" ]; then
+          CMD="$CMD -o ${{ inputs.output-file }}"
+        fi
+
+        echo "::group::Polyflow: ${{ inputs.workflow }}"
+        OUTPUT=$(eval "$CMD" 2>&1)
+        EXIT_CODE=$?
+        echo "$OUTPUT"
+        echo "::endgroup::"
+
+        # Write multiline output to GITHUB_OUTPUT
+        {
+          echo "result<<POLYFLOW_EOF"
+          echo "$OUTPUT"
+          echo "POLYFLOW_EOF"
+        } >> "$GITHUB_OUTPUT"
+
+        if [ -n "${{ inputs.output-file }}" ]; then
+          echo "output-file=${{ inputs.output-file }}" >> "$GITHUB_OUTPUT"
+        fi
+
+        exit $EXIT_CODE

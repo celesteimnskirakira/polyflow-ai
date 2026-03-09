@@ -319,7 +319,9 @@ def list_workflows(tag: str | None):
 @click.option("--show-output/--no-show-output", default=True, help="Preview step outputs")
 @click.option("--dry-run", is_flag=True, default=False,
               help="Preview rendered prompts without calling any APIs")
-def run(workflow_ref: str, user_input: str, output: str | None, show_output: bool, dry_run: bool):
+@click.option("--ci", "ci_mode", is_flag=True, default=False,
+              help="Non-interactive mode for CI/CD: auto-approve HITL checkpoints")
+def run(workflow_ref: str, user_input: str, output: str | None, show_output: bool, dry_run: bool, ci_mode: bool):
     """
     Run a workflow by name or file path.
 
@@ -329,6 +331,7 @@ def run(workflow_ref: str, user_input: str, output: str | None, show_output: boo
       polyflow run ./my-flow.yaml -i "build a todo API"
       polyflow run bug-triage -i "TypeError in auth.py line 42"
       polyflow run code-review-multi-model --dry-run -i "test"
+      polyflow run security-audit --ci -i "$(cat src/auth.py)"
     """
     from polyflow.engine.runner import run_workflow
 
@@ -338,7 +341,7 @@ def run(workflow_ref: str, user_input: str, output: str | None, show_output: boo
         err_console.print(f"[red]✗ {e}[/red]")
         sys.exit(1)
 
-    if not user_input:
+    if not user_input and not ci_mode:
         user_input = click.prompt("  Workflow input")
 
     config = load_config()
@@ -351,7 +354,7 @@ def run(workflow_ref: str, user_input: str, output: str | None, show_output: boo
 
     ctx = asyncio.run(run_workflow(
         workflow_path, user_input, config,
-        show_output=show_output, dry_run=dry_run,
+        show_output=show_output, dry_run=dry_run, ci_mode=ci_mode,
     ))
 
     if output and ctx.step_outputs:

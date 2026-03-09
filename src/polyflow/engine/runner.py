@@ -22,6 +22,7 @@ async def run_workflow(
     cwd: Path | None = None,
     show_output: bool = True,
     dry_run: bool = False,
+    ci_mode: bool = False,
 ) -> TemplateContext:
     """
     Execute a workflow YAML file.
@@ -104,19 +105,30 @@ async def run_workflow(
             console.print(Panel(preview, border_style="dim", padding=(0, 1)))
 
         if step.hitl:
-            # Cap content shown in HITL panel to avoid overwhelming the terminal
-            hitl_content = ""
-            if step.hitl.show:
-                hitl_content = output[:2000] + ("\n\n[…truncated]" if len(output) > 2000 else "")
-            result = prompt_hitl(
-                message=step.hitl.message,
-                options=step.hitl.options,
-                content=hitl_content,
-            )
-            ctx.hitl_choices[step.id] = {"choice": result.choice, "note": result.note}
-            if result.choice == "abort":
-                console.print("[red]✗ Workflow aborted by user.[/red]")
-                return ctx
+            if ci_mode:
+                # In CI mode: auto-choose 'continue' if available, else first option
+                auto_choice = "continue" if "continue" in step.hitl.options else step.hitl.options[0]
+                console.print(
+                    f"[dim]⚙ CI mode: auto-choosing '{auto_choice}' for HITL checkpoint '{step.id}'[/dim]"
+                )
+                ctx.hitl_choices[step.id] = {"choice": auto_choice, "note": ""}
+                if auto_choice == "abort":
+                    console.print("[red]✗ Workflow aborted (CI auto-choice).[/red]")
+                    return ctx
+            else:
+                # Cap content shown in HITL panel to avoid overwhelming the terminal
+                hitl_content = ""
+                if step.hitl.show:
+                    hitl_content = output[:2000] + ("\n\n[…truncated]" if len(output) > 2000 else "")
+                result = prompt_hitl(
+                    message=step.hitl.message,
+                    options=step.hitl.options,
+                    content=hitl_content,
+                )
+                ctx.hitl_choices[step.id] = {"choice": result.choice, "note": result.note}
+                if result.choice == "abort":
+                    console.print("[red]✗ Workflow aborted by user.[/red]")
+                    return ctx
 
     if dry_run:
         console.print("\n[bold yellow]◎ Dry run complete.[/bold yellow]  No API calls were made.\n")

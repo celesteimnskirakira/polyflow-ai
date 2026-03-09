@@ -1,0 +1,74 @@
+name: AI Code Review
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+    paths:
+      - '**.py'
+      - '**.ts'
+      - '**.js'
+      - '**.go'
+      - '**.rs'
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  code-review:
+    name: Multi-model code review
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get PR diff
+        id: diff
+        run: |
+          DIFF=$(git diff origin/${{ github.base_ref }}...HEAD -- '*.py' '*.ts' '*.js' '*.go' '*.rs' | head -c 8000)
+          {
+            echo "content<<DIFF_EOF"
+            echo "$DIFF"
+            echo "DIFF_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Run Polyflow code review
+        id: review
+        uses: celesteimnskirakira/polyflow@main
+        with:
+          workflow: code-review-multi-model
+          input: ${{ steps.diff.outputs.content }}
+          output-file: review-output.md
+          openrouter-api-key: ${{ secrets.OPENROUTER_API_KEY }}
+
+      - name: Post review as PR comment
+        uses: actions/github-script@v7
+        if: always()
+        with:
+          script: |
+            const fs = require('fs');
+            let body;
+            try {
+              body = fs.readFileSync('review-output.md', 'utf8');
+            } catch {
+              body = `${{ steps.review.outputs.result }}`;
+            }
+
+            const header = `## 🤖 Polyflow AI Code Review\n\n` +
+              `> Claude · Gemini · GPT-4 in parallel\n\n`;
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: header + body.slice(0, 65000),
+            });
+
+      - name: Upload review artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: polyflow-review-${{ github.event.pull_request.number }}
+          path: review-output.md
+          retention-days: 30
