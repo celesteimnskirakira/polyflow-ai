@@ -281,7 +281,7 @@ def list_workflows(tag: str | None):
         return
 
     if tag:
-        workflows = [(n, d, p, t) for n, d, p, t in workflows if tag in t]
+        workflows = [(n, d, p, t) for n, d, p, t in workflows if any(tag in item for item in t)]
         if not workflows:
             console.print(f"[yellow]No workflows with tag '{tag}'.[/yellow]")
             return
