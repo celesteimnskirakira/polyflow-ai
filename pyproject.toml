@@ -9,6 +9,7 @@ description = "Multi-model AI workflow engine for developers"
 readme = "README.md"
 license = {text = "MIT"}
 authors = [{name = "Polyflow Contributors"}]
+urls = {Homepage = "https://github.com/celesteimnskirakira/polyflow", Repository = "https://github.com/celesteimnskirakira/polyflow", "Bug Tracker" = "https://github.com/celesteimnskirakira/polyflow/issues"}
 keywords = ["ai", "workflow", "llm", "claude", "gemini", "gpt-4", "automation", "yaml"]
 classifiers = [
     "Development Status :: 4 - Beta",
