@@ -68,20 +68,24 @@ runs:
         ANTHROPIC_API_KEY: ${{ inputs.anthropic-api-key }}
         GOOGLE_API_KEY: ${{ inputs.google-api-key }}
         OPENAI_API_KEY: ${{ inputs.openai-api-key }}
+        # Pass user-controlled values via env vars to avoid shell injection
+        POLYFLOW_WORKFLOW: ${{ inputs.workflow }}
+        POLYFLOW_INPUT: ${{ inputs.input }}
+        POLYFLOW_OUTPUT_FILE: ${{ inputs.output-file }}
       run: |
-        # Build the polyflow command
-        CMD="polyflow run ${{ inputs.workflow }} --ci"
+        # Build command as array to safely handle inputs with special characters
+        ARGS=(polyflow run "$POLYFLOW_WORKFLOW" --ci)
 
-        if [ -n "${{ inputs.input }}" ]; then
-          CMD="$CMD -i $(printf '%q' '${{ inputs.input }}')"
+        if [ -n "$POLYFLOW_INPUT" ]; then
+          ARGS+=(-i "$POLYFLOW_INPUT")
         fi
 
-        if [ -n "${{ inputs.output-file }}" ]; then
-          CMD="$CMD -o ${{ inputs.output-file }}"
+        if [ -n "$POLYFLOW_OUTPUT_FILE" ]; then
+          ARGS+=(-o "$POLYFLOW_OUTPUT_FILE")
         fi
 
-        echo "::group::Polyflow: ${{ inputs.workflow }}"
-        OUTPUT=$(eval "$CMD" 2>&1)
+        echo "::group::Polyflow: $POLYFLOW_WORKFLOW"
+        OUTPUT=$("${ARGS[@]}" 2>&1)
         EXIT_CODE=$?
         echo "$OUTPUT"
         echo "::endgroup::"
@@ -93,8 +97,8 @@ runs:
           echo "POLYFLOW_EOF"
         } >> "$GITHUB_OUTPUT"
 
-        if [ -n "${{ inputs.output-file }}" ]; then
-          echo "output-file=${{ inputs.output-file }}" >> "$GITHUB_OUTPUT"
+        if [ -n "$POLYFLOW_OUTPUT_FILE" ]; then
+          echo "output-file=$POLYFLOW_OUTPUT_FILE" >> "$GITHUB_OUTPUT"
         fi
 
         exit $EXIT_CODE

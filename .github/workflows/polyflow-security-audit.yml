@@ -31,7 +31,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Check API key is configured
+        id: key-check
+        run: |
+          if [ -z "${{ secrets.OPENROUTER_API_KEY }}" ] && \
+             [ -z "${{ secrets.ANTHROPIC_API_KEY }}" ] && \
+             [ -z "${{ secrets.GOOGLE_API_KEY }}" ] && \
+             [ -z "${{ secrets.OPENAI_API_KEY }}" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "⚠️ No API key configured. Add OPENROUTER_API_KEY to Settings → Secrets → Actions to enable AI security audits."
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Collect source files
+        if: steps.key-check.outputs.skip != 'true'
         id: source
         run: |
           TARGET="${{ github.event.inputs.target-path || 'src/' }}"
@@ -47,6 +61,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Run Polyflow security audit
+        if: steps.key-check.outputs.skip != 'true'
         id: audit
         uses: celesteimnskirakira/polyflow@main
         with:
@@ -56,6 +71,7 @@ jobs:
           openrouter-api-key: ${{ secrets.OPENROUTER_API_KEY }}
 
       - name: Check for critical findings
+        if: steps.key-check.outputs.skip != 'true'
         id: severity-check
         run: |
           if grep -qi "critical\|high severity\|CVE" security-report.md 2>/dev/null; then
@@ -65,7 +81,7 @@ jobs:
           fi
 
       - name: Open GitHub issue for critical findings
-        if: steps.severity-check.outputs.has_critical == 'true'
+        if: steps.key-check.outputs.skip != 'true' && steps.severity-check.outputs.has_critical == 'true'
         uses: actions/github-script@v7
         with:
           script: |
@@ -87,7 +103,7 @@ jobs:
 
       - name: Upload security report
         uses: actions/upload-artifact@v4
-        if: always()
+        if: steps.key-check.outputs.skip != 'true' && always()
         with:
           name: security-report-${{ github.sha }}
           path: security-report.md
