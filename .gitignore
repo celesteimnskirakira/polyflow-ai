@@ -5,4 +5,8 @@ dist/
 build/
 .env
 *.yaml.tmp
+.pytest_cache/
+.DS_Store
+*.pyc
 docs/community-repo/
+docs/plans/
